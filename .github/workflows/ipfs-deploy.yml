@@ -19,7 +19,7 @@ jobs:
         name: Install pnpm
         with:
           version: 10
-          run_install: false 
+          run_install: false
 
       # 3) Node
       - name: Setup Node
@@ -28,61 +28,74 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      # 4) Instalar dependencias
+      # 4) Instalar dependencias del proyecto
       - name: Install dependencies
-        run: pnpm install 
+        run: pnpm install
 
       # 5) Build del proyecto (debe generar la carpeta `out/`)
       - name: Build project
         run: pnpm run build
 
-      # (Opcional) ver qué hay después del build
-      - name: List files
+      # (Opcional) Debug: ver estructura después del build
+      - name: List files after build
         run: |
           echo "Contenido del repo tras el build:"
           ls -R
 
-      # 6) Instalar jq para leer el JSON de Pinata
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      # 6) Instalar el SDK de Pinata (solo para este CI)
+      - name: Install Pinata SDK
+        run: pnpm add -D @pinata/sdk
 
-      # 7) Subir la carpeta `out/` a IPFS como directorio "root"
-      - name: Upload out folder to IPFS via Pinata
+      # 7) Subir la carpeta `out/` a IPFS usando el SDK oficial
+      - name: Upload out folder to IPFS via Pinata SDK
         id: upload
         env:
           PINATA_API_KEY: ${{ secrets.PINATA_API_KEY }}
           PINATA_SECRET_API_KEY: ${{ secrets.PINATA_SECRET_API_KEY }}
           PIN_NAME: ${{ secrets.PIN_NAME }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
           if [ ! -d "out" ]; then
             echo "❌ La carpeta 'out' no existe. Asegúrate de que tu build genere 'out/'"
             exit 1
           fi
 
-          cd out
+          CID=$(node << 'EOF'
+          const pinataSDK = require('@pinata/sdk');
+          const path = require('path');
 
-          echo "Empaquetando archivos para Pinata..."
-          FORM_ARGS=()
-          # Recorremos todos los archivos y usamos la ruta relativa como filepath
-          while IFS= read -r file; do
-            RELPATH="${file#./}"
-            FORM_ARGS+=(-F "file=@${file};filename=${RELPATH}")
-          done < <(find . -type f -print)
+          const pinata = pinataSDK(
+            process.env.PINATA_API_KEY,
+            process.env.PINATA_SECRET_API_KEY
+          );
 
-          # OJO: aquí ya NO usamos wrapWithDirectory,
-          # seguimos lo que recomienda la doc de Pinata para carpetas.
-          RESPONSE=$(curl -s -X POST "https://api.pinata.cloud/pinning/pinFileToIPFS" \
-            -H "pinata_api_key: $PINATA_API_KEY" \
-            -H "pinata_secret_api_key: $PINATA_SECRET_API_KEY" \
-            -F "pinataMetadata={\"name\":\"${PIN_NAME:-github-ipfs-deploy}\",\"keyvalues\":{\"repo\":\"${GITHUB_REPOSITORY}\",\"sha\":\"${GITHUB_SHA}\"}}" \
-            "${FORM_ARGS[@]}")
+          (async () => {
+            try {
+              const src = path.resolve('out');
 
-          echo "Pinata response: $RESPONSE"
+              const res = await pinata.pinFromFS(src, {
+                pinataMetadata: {
+                  name: process.env.PIN_NAME || 'github-ipfs-deploy',
+                  keyvalues: {
+                    repo: process.env.GITHUB_REPOSITORY || '',
+                    sha: process.env.GITHUB_SHA || ''
+                  }
+                }
+              });
 
-          CID=$(echo "$RESPONSE" | jq -r '.IpfsHash')
+              // Imprimimos SOLO el CID para capturarlo en bash
+              process.stdout.write(res.IpfsHash);
+            } catch (err) {
+              console.error('Error pinning folder to Pinata:', err);
+              process.exit(1);
+            }
+          })();
+          EOF
+          )
 
-          if [ "$CID" = "null" ] || [ -z "$CID" ]; then
-            echo "❌ Error obteniendo el CID de IPFS"
+          if [ -z "$CID" ]; then
+            echo "❌ No se obtuvo CID de Pinata"
             exit 1
           fi
 
@@ -95,6 +108,6 @@ jobs:
           echo "CID desplegado:"
           echo "${{ steps.upload.outputs.ipfs_cid }}"
           echo ""
-          echo "Ábrelo así (sin /site ni nada):"
+          echo "Ábrelo DIRECTO así (con / al final):"
           echo "https://ipfs.io/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"
           echo "https://gateway.pinata.cloud/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"

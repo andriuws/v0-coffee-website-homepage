@@ -67,7 +67,7 @@ jobs:
           while IFS= read -r file; do
             RELPATH="${file#./}"
             # 👇 Aquí está la magia: forzamos un solo root directory "site/"
-            VIRTUAL_PATH="site/${RELPATH}"
+            VIRTUAL_PATH="${RELPATH}"
             FORM_ARGS+=(-F "file=@${file};filename=${VIRTUAL_PATH}")
           done < <(find . -type f -print)
 

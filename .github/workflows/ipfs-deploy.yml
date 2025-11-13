@@ -32,12 +32,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # 5) Build del proyecto (asegúrate que genere la carpeta `out/`)
+      # 5) Build del proyecto
       - name: Build project
         run: pnpm run build
 
-      # (Opcional, para debug)
-      - name: List files
+      # (Opcional) para debug
+      - name: List files after build
         run: |
           echo "Contenido del repo tras el build:"
           ls -R
@@ -46,27 +46,37 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # 7) Subir carpeta `out/` a IPFS vía Pinata como directorio
-      - name: Upload out folder to IPFS via Pinata
+      # 7) Subir carpeta estática a IPFS vía Pinata
+      - name: Upload static folder to IPFS via Pinata
         id: upload
         env:
           PINATA_API_KEY: ${{ secrets.PINATA_API_KEY }}
           PINATA_SECRET_API_KEY: ${{ secrets.PINATA_SECRET_API_KEY }}
           PIN_NAME: ${{ secrets.PIN_NAME }}
         run: |
-          if [ ! -d "out" ]; then
-            echo "❌ La carpeta 'out' no existe. Asegúrate de que tu build genere 'out/'"
+          # Detectar carpeta de build
+          if [ -d "out" ]; then
+            BUILD_DIR="out"
+          elif [ -d "dist" ]; then
+            BUILD_DIR="dist"
+          elif [ -d "build" ]; then
+            BUILD_DIR="build"
+          else
+            echo "❌ No se encontró carpeta de build (out/, dist/ o build/)."
+            echo "Contenido actual del repo:"
+            ls
             exit 1
           fi
 
-          cd out
+          echo "Usando carpeta de build: $BUILD_DIR"
+          cd "$BUILD_DIR"
 
           echo "Empaquetando archivos para Pinata..."
           FORM_ARGS=()
-          # OJO: asumimos que no tienes espacios raros en los nombres de archivos.
+          # Asumimos que no hay espacios raros en los nombres de archivos.
           while IFS= read -r file; do
             RELPATH="${file#./}"
-            # 👇 Aquí está la magia: forzamos un solo root directory "site/"
+            # Usamos un root directory 'site/' dentro del pin
             VIRTUAL_PATH="site/${RELPATH}"
             FORM_ARGS+=(-F "file=@${file};filename=${VIRTUAL_PATH}")
           done < <(find . -type f -print)
@@ -90,13 +100,12 @@ jobs:
           echo "✅ Deploy OK. CID: $CID"
           echo "ipfs_cid=$CID" >> $GITHUB_OUTPUT
 
-
       # 8) Mostrar URLs de acceso
       - name: Show IPFS gateway URLs
         run: |
           echo "CID desplegado:"
           echo "${{ steps.upload.outputs.ipfs_cid }}"
           echo ""
-          echo "Gateways (abre el CID con / al final para servir index.html):"
-          echo "https://ipfs.io/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"
-          echo "https://gateway.pinata.cloud/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"
+          echo "Tu sitio está bajo la carpeta /site dentro del CID:"
+          echo "https://ipfs.io/ipfs/${{ steps.upload.outputs.ipfs_cid }}/site/"
+          echo "https://gateway.pinata.cloud/ipfs/${{ steps.upload.outputs.ipfs_cid }}/site/"

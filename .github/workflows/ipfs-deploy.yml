@@ -66,7 +66,9 @@ jobs:
           # OJO: asumimos que no tienes espacios raros en los nombres de archivos.
           while IFS= read -r file; do
             RELPATH="${file#./}"
-            FORM_ARGS+=(-F "file=@${file};filename=${RELPATH}")
+            # 👇 Aquí está la magia: forzamos un solo root directory "site/"
+            VIRTUAL_PATH="site/${RELPATH}"
+            FORM_ARGS+=(-F "file=@${file};filename=${VIRTUAL_PATH}")
           done < <(find . -type f -print)
 
           RESPONSE=$(curl -s -X POST "https://api.pinata.cloud/pinning/pinFileToIPFS" \
@@ -87,6 +89,7 @@ jobs:
 
           echo "✅ Deploy OK. CID: $CID"
           echo "ipfs_cid=$CID" >> $GITHUB_OUTPUT
+
 
       # 8) Mostrar URLs de acceso
       - name: Show IPFS gateway URLs

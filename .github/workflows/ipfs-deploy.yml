@@ -14,19 +14,26 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 10
+          run_install: false 
+
       # 2) Node (ajusta la versión si hace falta)
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'pnpm'
 
       # 3) Instalar dependencias
       - name: Install dependencies
-        run: npm install 
+        run: pnpm install 
 
       # 4) Build del proyecto
       - name: Build project
-        run: npm run build
+        run: pnpm run build
 
       # 5) (Opcional) si necesitas exportar a estático tipo Next:
       # - name: Export static site
@@ -76,4 +83,3 @@ jobs:
           echo ""
           echo "Puedes verlo en distintos gateways (pueden tardar unos minutos en propagar):"
           echo "https://ipfs.io/ipfs/${{ steps.build-and-deploy.outputs.ipfs_cid }}"
-          echo "https://gateway.pinata.cloud/ipfs/${{ steps.build-and-deploy.outputs.ipfs_cid }}"

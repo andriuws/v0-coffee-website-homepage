@@ -14,60 +14,70 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # 2) PNPM
       - uses: pnpm/action-setup@v4
         name: Install pnpm
         with:
           version: 10
-          run_install: false 
+          run_install: false
 
-      # 2) Node (ajusta la versión si hace falta)
+      # 3) Node
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
 
-      # 3) Instalar dependencias
+      # 4) Instalar dependencias
       - name: Install dependencies
-        run: pnpm install 
+        run: pnpm install
 
-      # 4) Build del proyecto
+      # 5) Build del proyecto (asegúrate que genere la carpeta `out/`)
       - name: Build project
         run: pnpm run build
 
-      # 5) (Opcional) si necesitas exportar a estático tipo Next:
-      # - name: Export static site
-      #   run: npm run export
-
-      # Asegúrate de que en este punto tu sitio final está en la carpeta `out/`
-
-      - name: check folders 
-        run: ls
-
-      # 6) Comprimir carpeta `out`
-      - name: Create archive from out folder
+      # (Opcional, para debug)
+      - name: List files
         run: |
-          cd out
-          tar -czf ../site.tar.gz .
+          echo "Contenido del repo tras el build:"
+          ls -R
 
-      # 7) Subir a IPFS via Pinata
-      - name: Upload to IPFS via Pinata
+      # 6) Instalar jq (para parsear el JSON de Pinata)
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # 7) Subir carpeta `out/` a IPFS vía Pinata como directorio
+      - name: Upload out folder to IPFS via Pinata
+        id: upload
         env:
           PINATA_API_KEY: ${{ secrets.PINATA_API_KEY }}
           PINATA_SECRET_API_KEY: ${{ secrets.PINATA_SECRET_API_KEY }}
           PIN_NAME: ${{ secrets.PIN_NAME }}
         run: |
-          # Subimos el tar.gz como pin en Pinata
+          if [ ! -d "out" ]; then
+            echo "❌ La carpeta 'out' no existe. Asegúrate de que tu build genere 'out/'"
+            exit 1
+          fi
+
+          cd out
+
+          echo "Empaquetando archivos para Pinata..."
+          FORM_ARGS=()
+          # OJO: asumimos que no tienes espacios raros en los nombres de archivos.
+          while IFS= read -r file; do
+            RELPATH="${file#./}"
+            FORM_ARGS+=(-F "file=@${file};filename=${RELPATH}")
+          done < <(find . -type f -print)
+
           RESPONSE=$(curl -s -X POST "https://api.pinata.cloud/pinning/pinFileToIPFS" \
             -H "pinata_api_key: $PINATA_API_KEY" \
             -H "pinata_secret_api_key: $PINATA_SECRET_API_KEY" \
-            -F "file=@site.tar.gz" \
+            -F "pinataOptions={\"wrapWithDirectory\": true}" \
             -F "pinataMetadata={\"name\":\"${PIN_NAME:-github-ipfs-deploy}\",\"keyvalues\":{\"repo\":\"${GITHUB_REPOSITORY}\",\"sha\":\"${GITHUB_SHA}\"}}" \
-            )
+            "${FORM_ARGS[@]}")
 
           echo "Pinata response: $RESPONSE"
-          
-          # Extraer el CID de la respuesta
+
           CID=$(echo "$RESPONSE" | jq -r '.IpfsHash')
 
           if [ "$CID" = "null" ] || [ -z "$CID" ]; then
@@ -82,7 +92,8 @@ jobs:
       - name: Show IPFS gateway URLs
         run: |
           echo "CID desplegado:"
-          echo "${{ steps.build-and-deploy.outputs.ipfs_cid }}"
+          echo "${{ steps.upload.outputs.ipfs_cid }}"
           echo ""
-          echo "Puedes verlo en distintos gateways (pueden tardar unos minutos en propagar):"
-          echo "https://ipfs.io/ipfs/${{ steps.build-and-deploy.outputs.ipfs_cid }}"
+          echo "Gateways (abre el CID con / al final para servir index.html):"
+          echo "https://ipfs.io/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"
+          echo "https://gateway.pinata.cloud/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"

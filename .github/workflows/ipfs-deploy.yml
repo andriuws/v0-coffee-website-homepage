@@ -62,13 +62,22 @@ jobs:
           fi
 
           CID=$(node << 'EOF'
-          const pinataSDK = require('@pinata/sdk');
+          const PinataSDK = require('@pinata/sdk');
           const path = require('path');
 
-          const pinata = pinataSDK(
-            process.env.PINATA_API_KEY,
-            process.env.PINATA_SECRET_API_KEY
-          );
+          const apiKey = process.env.PINATA_API_KEY;
+          const secretKey = process.env.PINATA_SECRET_API_KEY;
+
+          if (!apiKey || !secretKey) {
+            console.error('Missing Pinata API keys');
+            process.exit(1);
+          }
+
+          // 👇 AQUÍ EL CAMBIO: usar "new"
+          const pinata = new PinataSDK({
+            pinataApiKey: apiKey,
+            pinataSecretApiKey: secretKey,
+          });
 
           (async () => {
             try {
@@ -79,9 +88,9 @@ jobs:
                   name: process.env.PIN_NAME || 'github-ipfs-deploy',
                   keyvalues: {
                     repo: process.env.GITHUB_REPOSITORY || '',
-                    sha: process.env.GITHUB_SHA || ''
-                  }
-                }
+                    sha: process.env.GITHUB_SHA || '',
+                  },
+                },
               });
 
               // Imprimimos SOLO el CID para capturarlo en bash

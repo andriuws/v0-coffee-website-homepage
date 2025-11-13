@@ -13,7 +13,7 @@ export default function Hero() {
             <div className="space-y-2">
               <p className="text-primary font-semibold text-sm uppercase tracking-wide">Premium Coffee Experience</p>
               <h1 className="text-4xl md:text-5xl font-serif font-bold text-foreground text-balance leading-tight">
-                Archurrito
+                Archurrito2.0
               </h1>
             </div>
 

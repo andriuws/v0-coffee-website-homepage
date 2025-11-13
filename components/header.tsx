@@ -13,7 +13,7 @@ export default function Header() {
           {/* Logo */}
           <div className="flex items-center gap-2">
             <Coffee className="w-6 h-6 text-primary" />
-            <span className="text-xl font-serif font-bold text-foreground">Brew Haven</span>
+            <span className="text-xl font-serif font-bold text-foreground">Andriuws Cafeteria</span>
           </div>
 
           {/* Desktop Navigation */}

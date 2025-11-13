@@ -28,88 +28,68 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      # 4) Instalar dependencias del proyecto
+      # 4) Instalar dependencias
       - name: Install dependencies
         run: pnpm install
 
-      # 5) Build del proyecto (debe generar la carpeta `out/`)
+      # 5) Build del proyecto (asegúrate que genere la carpeta `out/`)
       - name: Build project
         run: pnpm run build
 
-      # (Opcional) Debug: ver estructura después del build
-      - name: List files after build
+      # (Opcional, para debug)
+      - name: List files
         run: |
           echo "Contenido del repo tras el build:"
           ls -R
 
-      # 6) Instalar el SDK de Pinata (solo para este CI)
-      - name: Install Pinata SDK
-        run: pnpm add -D @pinata/sdk
+      # 6) Instalar jq (para parsear el JSON de Pinata)
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      # 7) Subir la carpeta `out/` a IPFS usando el SDK oficial
-      - name: Upload out folder to IPFS via Pinata SDK
+      # 7) Subir carpeta `out/` a IPFS vía Pinata como directorio
+      - name: Upload out folder to IPFS via Pinata
         id: upload
         env:
           PINATA_API_KEY: ${{ secrets.PINATA_API_KEY }}
           PINATA_SECRET_API_KEY: ${{ secrets.PINATA_SECRET_API_KEY }}
           PIN_NAME: ${{ secrets.PIN_NAME }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
         run: |
           if [ ! -d "out" ]; then
             echo "❌ La carpeta 'out' no existe. Asegúrate de que tu build genere 'out/'"
             exit 1
           fi
 
-          CID=$(node << 'EOF'
-          const PinataSDK = require('@pinata/sdk');
-          const path = require('path');
+          cd out
 
-          const apiKey = process.env.PINATA_API_KEY;
-          const secretKey = process.env.PINATA_SECRET_API_KEY;
+          echo "Empaquetando archivos para Pinata..."
+          FORM_ARGS=()
+          # OJO: asumimos que no tienes espacios raros en los nombres de archivos.
+          while IFS= read -r file; do
+            RELPATH="${file#./}"
+            # 👇 Aquí está la magia: forzamos un solo root directory "site/"
+            VIRTUAL_PATH="site/${RELPATH}"
+            FORM_ARGS+=(-F "file=@${file};filename=${VIRTUAL_PATH}")
+          done < <(find . -type f -print)
 
-          if (!apiKey || !secretKey) {
-            console.error('Missing Pinata API keys');
-            process.exit(1);
-          }
+          RESPONSE=$(curl -s -X POST "https://api.pinata.cloud/pinning/pinFileToIPFS" \
+            -H "pinata_api_key: $PINATA_API_KEY" \
+            -H "pinata_secret_api_key: $PINATA_SECRET_API_KEY" \
+            -F "pinataOptions={\"wrapWithDirectory\": true}" \
+            -F "pinataMetadata={\"name\":\"${PIN_NAME:-github-ipfs-deploy}\",\"keyvalues\":{\"repo\":\"${GITHUB_REPOSITORY}\",\"sha\":\"${GITHUB_SHA}\"}}" \
+            "${FORM_ARGS[@]}")
 
-          // 👇 AQUÍ EL CAMBIO: usar "new"
-          const pinata = new PinataSDK({
-            pinataApiKey: apiKey,
-            pinataSecretApiKey: secretKey,
-          });
+          echo "Pinata response: $RESPONSE"
 
-          (async () => {
-            try {
-              const src = path.resolve('out');
+          CID=$(echo "$RESPONSE" | jq -r '.IpfsHash')
 
-              const res = await pinata.pinFromFS(src, {
-                pinataMetadata: {
-                  name: process.env.PIN_NAME || 'github-ipfs-deploy',
-                  keyvalues: {
-                    repo: process.env.GITHUB_REPOSITORY || '',
-                    sha: process.env.GITHUB_SHA || '',
-                  },
-                },
-              });
-
-              // Imprimimos SOLO el CID para capturarlo en bash
-              process.stdout.write(res.IpfsHash);
-            } catch (err) {
-              console.error('Error pinning folder to Pinata:', err);
-              process.exit(1);
-            }
-          })();
-          EOF
-          )
-
-          if [ -z "$CID" ]; then
-            echo "❌ No se obtuvo CID de Pinata"
+          if [ "$CID" = "null" ] || [ -z "$CID" ]; then
+            echo "❌ Error obteniendo el CID de IPFS"
             exit 1
           fi
 
           echo "✅ Deploy OK. CID: $CID"
           echo "ipfs_cid=$CID" >> $GITHUB_OUTPUT
+
 
       # 8) Mostrar URLs de acceso
       - name: Show IPFS gateway URLs
@@ -117,6 +97,6 @@ jobs:
           echo "CID desplegado:"
           echo "${{ steps.upload.outputs.ipfs_cid }}"
           echo ""
-          echo "Ábrelo DIRECTO así (con / al final):"
+          echo "Gateways (abre el CID con / al final para servir index.html):"
           echo "https://ipfs.io/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"
           echo "https://gateway.pinata.cloud/ipfs/${{ steps.upload.outputs.ipfs_cid }}/"

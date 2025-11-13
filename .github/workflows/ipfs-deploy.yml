@@ -41,6 +41,9 @@ jobs:
 
       # Asegúrate de que en este punto tu sitio final está en la carpeta `out/`
 
+      - name: check folders 
+        run: ls
+
       # 6) Comprimir carpeta `out`
       - name: Create archive from out folder
         run: |

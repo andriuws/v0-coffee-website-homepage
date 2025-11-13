@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  assetPrefix: "./",
+  output: "export",
   eslint: {
     ignoreDuringBuilds: true,
   },
